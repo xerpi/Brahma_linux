@@ -11,16 +11,3 @@ InvalidateEntireDataCache:
 	mov r0, #0
 	mcr p15, 0, r0, c7, c10, 0
 	bx lr
-
-.global DisableInterrupts
-.type DisableInterrupts, %function
-DisableInterrupts:
-	mrs r0, cpsr
-	CPSID I
-	bx lr
-	
-.global EnableInterrupts
-.type EnableInterrupts, %function
-EnableInterrupts:
-	msr cpsr_cx, r0
-	bx lr
