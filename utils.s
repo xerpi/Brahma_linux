@@ -5,9 +5,9 @@ InvalidateEntireInstructionCache:
 	mcr p15, 0, r0, c7, c5, 0
 	bx lr
 
-.global CleanEntireDataCache
-.type CleanEntireDataCache, %function
-CleanEntireDataCache:
+.global InvalidateEntireDataCache
+.type InvalidateEntireDataCache, %function
+InvalidateEntireDataCache:
 	mov r0, #0
 	mcr p15, 0, r0, c7, c10, 0
 	bx lr
