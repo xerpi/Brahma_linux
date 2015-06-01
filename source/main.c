@@ -10,14 +10,14 @@
 
 void interact_with_user (void) {
 	s32 menuidx = 0;
-	
+
 	while (aptMainLoop()) {
 		gspWaitForVBlank();
 
-		menuidx = print_main_menu(menuidx, &g_main_menu);		
+		menuidx = print_main_menu(menuidx, &g_main_menu);
 
-		u32 kDown = wait_key(); 
-		
+		u32 kDown = wait_key();
+
 		if (kDown & KEY_B) {
 			break;
 		}
@@ -34,7 +34,7 @@ void interact_with_user (void) {
 			menuidx++;
 		}
 		gfxFlushBuffers();
-		gfxSwapBuffers(); 
+		gfxSwapBuffers();
 	}
 
 	return;
@@ -43,7 +43,7 @@ void interact_with_user (void) {
 s32 quick_boot_firm (s32 load_from_disk) {
 	if (load_from_disk)
 		load_arm9_payload("/arm9payload.bin");
-	firm_reboot();	
+	firm_reboot();
 }
 
 s32 main (void) {
@@ -56,23 +56,18 @@ s32 main (void) {
 	sdmcInit();
 	hbInit();
 	qtmInit();
-	
+
 	consoleInit(GFX_BOTTOM, NULL);
 	if (brahma_init()) {
 		hidScanInput();
 		u32 kHeld = hidKeysHeld();
-	 
-		if (kHeld & KEY_LEFT) {
-			/* load default payload from dosk and run exploit */
-			quick_boot_firm(1);
-			printf("[!] Quickload failed\n");
-			wait_any_key();
-		} else if (kHeld & KEY_RIGHT) {
-			/* reboot only */
-			quick_boot_firm(0);
-		}
-	
-		soc_init();	
+
+		/* load default payload from dosk and run exploit */
+		quick_boot_firm(1);
+		printf("[!] Quickload failed\n");
+		wait_any_key();
+
+		soc_init();
 		interact_with_user();
 		soc_exit();
 		brahma_exit();
