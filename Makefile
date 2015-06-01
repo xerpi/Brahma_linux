@@ -130,7 +130,11 @@ $(BUILD):
 clean:
 	@echo clean ...
 	@rm -fr $(BUILD) $(TARGET).3dsx $(OUTPUT).smdh $(TARGET).elf
-
+#---------------------------------------------------------------------------------
+copy: $(BUILD)
+	@cp $(OUTPUT).3dsx "/mnt/GATEWAYNAND/3ds/Brahma_linux"
+	@sync
+	@echo "Copied!"
 
 #---------------------------------------------------------------------------------
 else
